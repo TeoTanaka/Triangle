@@ -1,3 +1,6 @@
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.system.MemoryUtil;
@@ -11,6 +14,7 @@ import static org.lwjgl.opengl.GL33.*;
 public class Main {
 
     public static void main(String[] args) {
+
         float[] vertices = {
                 0.5f,  0.5f, 0.0f,  // top right
                 0.5f, -0.5f, 0.0f,  // bottom right
@@ -108,6 +112,27 @@ public class Main {
         // Delete the shaders as they are no longer needed
         glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
+
+        Matrix4f proj = new Matrix4f().perspective((float)Math.toRadians(45f),800.0f / 600.0f, 0.1f, 100.0f);
+        Matrix4f view = new Matrix4f().identity();
+        Matrix4f model = new Matrix4f().rotate((float)Math.toRadians(55f),new Vector3f(1f,0,0));
+
+
+        int modelLoc = glGetUniformLocation(shaderProgram, "model");
+        FloatBuffer modelBuf = BufferUtils.createFloatBuffer(16);
+        model.get(modelBuf);
+        glUniformMatrix4fv(modelLoc, false, modelBuf);
+
+        int viewLoc = glGetUniformLocation(shaderProgram, "view");
+        FloatBuffer viewBuf = BufferUtils.createFloatBuffer(16);
+        view.get(viewBuf);
+        glUniformMatrix4fv(viewLoc, false, viewBuf);
+
+        int projLoc = glGetUniformLocation(shaderProgram, "proj");
+        FloatBuffer projBuf = BufferUtils.createFloatBuffer(16);
+        proj.get(projBuf);
+        glUniformMatrix4fv(projLoc, false, projBuf);
+
 
         // Set the clear color
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
