@@ -1,7 +1,6 @@
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
-import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.system.MemoryUtil;
 
@@ -13,44 +12,56 @@ import static org.lwjgl.opengl.GL33.*;
 
 public class Main {
 
+
+
     public static void main(String[] args) {
 
-        float[] vertices = {
-                0.5f,  0.5f, 0.0f,  // top right
-                0.5f, -0.5f, 0.0f,  // bottom right
-                -0.5f, -0.5f, 0.0f,  // bottom left
-                -0.5f,  0.5f, 0.0f   // top left
-        };
-        int[] indices = {
-                0, 1, 3,   // first triangle
-                1, 2, 3    // second triangle
-        };
-
-        // Initialize GLFW
+        // Setup GLFW
         if (!glfwInit()) {
             throw new IllegalStateException("Unable to initialize GLFW");
         }
 
-        // Create a windowed mode window and its OpenGL context
-        long window = glfwCreateWindow(800, 600, "My Game", 0, 0);
+        long window = glfwCreateWindow(800, 600, "Perspective Projection with Camera", 0, 0);
         if (window == 0) {
             glfwTerminate();
-            throw new RuntimeException("Failed to create the GLFW window");
+            throw new RuntimeException("Failed to create GLFW window");
         }
 
-        // Make the OpenGL context current
         glfwMakeContextCurrent(window);
-        glfwShowWindow(window); // Ensure the window is visible
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         GL.createCapabilities();
 
-        // Set the viewport
+        // Viewport and depth
         glViewport(0, 0, 800, 600);
+        glEnable(GL_DEPTH_TEST);
 
-        // Create a VAO
+        // Camera setup
+        Camera camera = new Camera(new Vector3f(0.0f, 0.0f, 3.0f), new Vector3f(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
+
+        float[] vertices = {
+                -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+                0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+                0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+                -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+                -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+                0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+                0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+                -0.5f,  0.5f,  0.5f,  0.0f, 1.0f
+        };
+
+        int[] indices = {
+                0, 1, 2, 2, 3, 0, // Front
+                4, 5, 6, 6, 7, 4, // Back
+                0, 1, 5, 5, 4, 0, // Bottom
+                2, 3, 7, 7, 6, 2, // Top
+                0, 3, 7, 7, 4, 0, // Left
+                1, 2, 6, 6, 5, 1  // Right
+        };
+
+        // VAO, VBO, EBO setup
         int VAO = glGenVertexArrays();
         glBindVertexArray(VAO);
 
-        // Create a VBO
         FloatBuffer vertexBuffer = MemoryUtil.memAllocFloat(vertices.length);
         vertexBuffer.put(vertices).flip();
 
@@ -58,7 +69,6 @@ public class Main {
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
         glBufferData(GL_ARRAY_BUFFER, vertexBuffer, GL_STATIC_DRAW);
 
-        // Create an EBO
         IntBuffer indexBuffer = MemoryUtil.memAllocInt(indices.length);
         indexBuffer.put(indices).flip();
 
@@ -66,102 +76,94 @@ public class Main {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexBuffer, GL_STATIC_DRAW);
 
-        // Define the vertex attribute pointers
-        glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, false, 5 * Float.BYTES, 0);
         glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, 5 * Float.BYTES, 3 * Float.BYTES);
+        glEnableVertexAttribArray(1);
 
-        // Unbind the VAO (not strictly necessary here)
         glBindVertexArray(0);
-
-        // Free the allocated memory
         MemoryUtil.memFree(vertexBuffer);
         MemoryUtil.memFree(indexBuffer);
 
-        // Compile the shaders
-        String vertexShaderSource = FileLoader.readFile("resources/basic.vert");
+        // Shader setup
+        int shaderProgram = setupShaders();
+        glUseProgram(shaderProgram);
+
+        int viewLoc = glGetUniformLocation(shaderProgram, "view");
+        int projLoc = glGetUniformLocation(shaderProgram, "projection");
+
+        Matrix4f proj = new Matrix4f().perspective((float) Math.toRadians(45f), 800f / 600f, 0.1f, 100f);
+        FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
+
+        // Mouse and keyboard input handling
+        float[] lastMousePos = {400, 300};
+        glfwSetCursorPosCallback(window, (win, xpos, ypos) -> {
+            float xOffset = (float) xpos - lastMousePos[0];
+            float yOffset = lastMousePos[1] - (float) ypos;
+            lastMousePos[0] = (float) xpos;
+            lastMousePos[1] = (float) ypos;
+            camera.processMouse(xOffset, yOffset);
+        });
+
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+
+            // WASD movement
+            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.processKeyboard(GLFW_KEY_W);
+            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.processKeyboard(GLFW_KEY_S);
+            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.processKeyboard(GLFW_KEY_A);
+            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.processKeyboard(GLFW_KEY_D);
+
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            glUniformMatrix4fv(viewLoc, false, camera.getViewMatrix().get(matrixBuffer));
+            glUniformMatrix4fv(projLoc, false, proj.get(matrixBuffer));
+
+            glBindVertexArray(VAO);
+            glDrawElements(GL_TRIANGLES, indices.length, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+
+            glfwSwapBuffers(window);
+        }
+
+        glfwTerminate();
+    }
+
+    private static int setupShaders() {
+        String vertexShaderSource = """
+            #version 330 core
+            layout (location = 0) in vec3 aPos;
+            uniform mat4 view;
+            uniform mat4 projection;
+            void main() {
+                gl_Position = projection * view * vec4(aPos, 1.0);
+            }
+        """;
+
+        String fragmentShaderSource = """
+            #version 330 core
+            out vec4 FragColor;
+            void main() {
+                FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
+            }
+        """;
+
         int vertexShader = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(vertexShader, vertexShaderSource);
         glCompileShader(vertexShader);
 
-        // Check for vertex shader compilation errors
-        if (glGetShaderi(vertexShader, GL_COMPILE_STATUS) == GL_FALSE) {
-            System.err.println("Vertex Shader Compilation Failed: " + glGetShaderInfoLog(vertexShader));
-        }
-
-        String fragmentShaderSource = FileLoader.readFile("resources/basic.frag");
         int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         glShaderSource(fragmentShader, fragmentShaderSource);
         glCompileShader(fragmentShader);
 
-        // Check for fragment shader compilation errors
-        if (glGetShaderi(fragmentShader, GL_COMPILE_STATUS) == GL_FALSE) {
-            System.err.println("Fragment Shader Compilation Failed: " + glGetShaderInfoLog(fragmentShader));
-        }
-
-        // Link the shaders into a program
         int shaderProgram = glCreateProgram();
         glAttachShader(shaderProgram, vertexShader);
         glAttachShader(shaderProgram, fragmentShader);
         glLinkProgram(shaderProgram);
 
-        // Check for linking errors
-        if (glGetProgrami(shaderProgram, GL_LINK_STATUS) == GL_FALSE) {
-            System.err.println("Shader Program Linking Failed: " + glGetProgramInfoLog(shaderProgram));
-        }
-
-        // Delete the shaders as they are no longer needed
         glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
 
-        Matrix4f proj = new Matrix4f().perspective((float)Math.toRadians(45f),800.0f / 600.0f, 0.1f, 100.0f);
-        Matrix4f view = new Matrix4f().identity();
-        Matrix4f model = new Matrix4f().rotate((float)Math.toRadians(55f),new Vector3f(1f,0,0));
-
-
-        int modelLoc = glGetUniformLocation(shaderProgram, "model");
-        FloatBuffer modelBuf = BufferUtils.createFloatBuffer(16);
-        model.get(modelBuf);
-        glUniformMatrix4fv(modelLoc, false, modelBuf);
-
-        int viewLoc = glGetUniformLocation(shaderProgram, "view");
-        FloatBuffer viewBuf = BufferUtils.createFloatBuffer(16);
-        view.get(viewBuf);
-        glUniformMatrix4fv(viewLoc, false, viewBuf);
-
-        int projLoc = glGetUniformLocation(shaderProgram, "proj");
-        FloatBuffer projBuf = BufferUtils.createFloatBuffer(16);
-        proj.get(projBuf);
-        glUniformMatrix4fv(projLoc, false, projBuf);
-
-
-        // Set the clear color
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-
-        // Main loop
-        while (!glfwWindowShouldClose(window)) {
-            // Poll for window events
-            glfwPollEvents();
-
-            // Clear the screen
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            // Render the rectangle
-            glUseProgram(shaderProgram);
-            glBindVertexArray(VAO);
-            glDrawElements(GL_TRIANGLES, indices.length, GL_UNSIGNED_INT, 0);
-            glBindVertexArray(0);
-
-            // Swap the buffers
-            glfwSwapBuffers(window);
-        }
-
-        // Clean up
-        glDeleteVertexArrays(VAO);
-        glDeleteBuffers(VBO);
-        glDeleteBuffers(EBO);
-        glDeleteProgram(shaderProgram);
-
-        // Terminate GLFW
-        glfwTerminate();
+        return shaderProgram;
     }
 }
